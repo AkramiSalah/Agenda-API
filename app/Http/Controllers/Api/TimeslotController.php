@@ -43,6 +43,9 @@ class TimeslotController extends Controller
             "tag" => "string|nullable",
             "start_time" => "required|date",
             "end_time" => "required|date|after:start_time",
+        ], [
+            'agenda.required' => 'An agenda is required.',
+            'end_time.after' => 'End time must be after start time.',
         ]);
 
         $timeslot = Timeslot::create([

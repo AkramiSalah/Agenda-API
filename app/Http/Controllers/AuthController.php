@@ -42,10 +42,13 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'The given data was invalid',
                 'errors' => ['Invalid credentials'],
-            ], 401);
+            ], 404);
         }
 
         $user = User::where('email', $request->email)->first();
+        if (!$user) {
+            return response()->json(["error" => ""], 0);
+        }
         $authToken = $user->createToken("auth_token")->plainTextToken;
 
         return [

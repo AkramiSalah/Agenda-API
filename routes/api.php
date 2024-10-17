@@ -10,8 +10,14 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])->name('login');
 
 Route::get('/user', function (Request $request) {
-    return $request->user();
+    return response()->json($request->user());
 })->middleware('auth:sanctum');
+
+Route::get('/test', function () {
+    return response()->json(['message' => 'Test successful']);
+});
+
+

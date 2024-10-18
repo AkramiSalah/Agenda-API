@@ -3,13 +3,19 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\CreateTimeslotRequest;
+use App\Http\Requests\UpdateTimeslotRequest;
 use App\Models\Timeslot;
+use App\Policies\TimeslotPolicy;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use PHPUnit\Framework\Constraint\IsEmpty;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 
 class TimeslotController extends Controller
 {
+    use AuthorizesRequests;
+
     /**
      * Display a listing of the resource.
      */
@@ -21,32 +27,26 @@ class TimeslotController extends Controller
         }
 
         $timeslots = Timeslot::where("user_id", $user->id)->get();
-        if ($timeslots->isEmpty()) {
-            return response()->json(['message' => "All time slots are free."], 200);
-        }
 
-        return response()->json($timeslots->toArray(), 200);
+        return response()->json($timeslots->isEmpty()
+            ? ['message' => "All time slots are free."]
+            : $timeslots->toArray(), 200);
     }
 
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+    public function store(CreateTimeslotRequest $request)
     {
         $user = Auth::user();
         if (!$user) {
             return response()->json(['message' => 'Unauthorised'], 401);
         }
 
-        $request->validate([
-            "agenda" => "required|string",
-            "tag" => "string|nullable",
-            "start_time" => "required|date",
-            "end_time" => "required|date|after:start_time",
-        ], [
-            'agenda.required' => 'An agenda is required.',
-            'end_time.after' => 'End time must be after start time.',
-        ]);
+        $start_time = Carbon::parse($request->start_time);
+        $end_time = Carbon::parse($request->end_time);
+
+        $this->authorize('create', [Timeslot::class, $start_time, $end_time]);
 
         $timeslot = Timeslot::create([
             "user_id" => $user->id,
@@ -75,13 +75,15 @@ class TimeslotController extends Controller
             return response()->json(['message' => "Timeslot with id: $id was not found or does not belong to you."], 404);
         }
 
+        $this->authorize('view', $timeslot);
+
         return response()->json($timeslot, 200);
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(UpdateTimeslotRequest $request, string $id)
     {
         $user = Auth::user();
         if (!$user) {
@@ -94,12 +96,9 @@ class TimeslotController extends Controller
             return response()->json(['message' => "Timeslot with id: $id was not found or does not belong to you."], 404);
         }
 
-        $request->validate([
-            "agenda" => "required|string",
-            "tag" => "string|nullable",
-            "start_time" => "required|date",
-            "end_time" => "required|date|after:start_time",
-        ]);
+        $start_time = Carbon::parse($request->start_time);
+        $end_time = Carbon::parse($request->end_time);
+        $this->authorize('update', [$timeslot, $start_time, $end_time]);
 
         $timeslot->update([
             "agenda" => $request->agenda,
@@ -128,7 +127,52 @@ class TimeslotController extends Controller
             return response()->json(['message' => "Timeslot with id: $id was not found or does not belong to you."], 404);
         }
 
+        $this->authorize('delete', $timeslot);
         $timeslot->delete();
+
         return response()->json(['message' => 'Timeslot was successfully deleted'], 200);
+    }
+
+    public function handleBatchRequests(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorised'], 401);
+        }
+
+        $responses = [];
+
+        foreach ($request->requests as $req) {
+            try {
+                switch ($req['action']) {
+                    case 'create':
+                        $timeSlotRequest = new CreateTimeslotRequest($req['data']);
+                        $response = $this->store($timeSlotRequest);
+                        $responses[] = ['action' => 'create', 'response' => $response->getData()];
+                        break;
+
+                    case 'update':
+                        $timeSlotRequest = new UpdateTimeslotRequest($req['data']);
+                        $response = $this->update($timeSlotRequest, $req['id']);
+                        $responses[] = ['action' => 'update', 'response' => $response->getData()];
+                        break;
+
+                    case 'delete':
+                        $response = $this->destroy($req['id']);
+                        $responses[] = ['action' => 'delete', 'response' => $response->getData()];
+                        break;
+
+                    default:
+                        $responses[] = ['status' => 'error', 'message' => "Invalid action: {$req['action']}."];
+                        break;
+                }
+            } catch (\Exception $e) {
+                // Log the error for internal tracking
+                \Log::error($e->getMessage());
+                $responses[] = ['status' => 'error', 'message' => 'An error occurred while processing the request.'];
+            }
+        }
+
+        return response()->json($responses, 200);
     }
 }

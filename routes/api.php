@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('timeslots', TimeslotController::class);
+    Route::post('/timeslots/batch', [TimeslotController::class, 'handleBatchRequests']);
 });
 
 Route::post('/register', [AuthController::class, 'register']);
